@@ -1,3 +1,4 @@
+from urllib import response
 import requests
 import flet as ft
 
@@ -12,9 +13,8 @@ def get_area_data():
     return response.json()
 
 def get_forecast_data(area_code):
-    """地域コードを使って予報を取得する"""
-    url = f"{FORECAST_BASE_URL}{area_code}.json" 
-    response = requests.get(url)
+    url = f"{FORECAST_BASE_URL}{area_code}.json"
+    response = requests.get(url) # response を作る
     return response.json()
 
 # --- 3. UI部品：天気アイコンとカード ---
@@ -36,28 +36,44 @@ def create_forecast_card(date_str, weather_text, temp_min, temp_max):
         shadow=ft.BoxShadow(blur_radius=5, color="black12")
     )
 
-# --- 4. 解析部分：ここが一番の頑張りどころ！ ---
+# --- 4. 解析部分：より確実にデータを抜く書き方 ---
 def parse_and_create_cards(raw_data):
     cards = []
     try:
-        # 気象庁データの階層を掘り進む
+        # メインの時系列リストを取得
         time_series = raw_data[0]['timeSeries']
-        dates = time_series[0]['timeDefines']
-        weathers = time_series[0]['areas'][0]['weathers']
-        # 気温はデータがない場合があるのでチェック
-        temps = time_series[2]['areas'][0]['temps'] if len(time_series) > 2 else []
+        
+        # 1. 天気情報を探す (weathers というキーを持っている箱を探す)
+        weather_section = next(s for s in time_series if 'weathers' in s['areas'][0])
+        dates = weather_section['timeDefines']
+        weathers = weather_section['areas'][0]['weathers']
+        
+        # 2. 気温情報を探す (temps というキーを持っている箱を探す)
+        # 見つからない場合は空のリストを返す
+        try:
+            temp_section = next(s for s in time_series if 'temps' in s['areas'][0])
+            temps = temp_section['areas'][0]['temps']
+        except StopIteration:
+            temps = []
 
+        # 3. カード作成
         for i in range(len(weathers)):
+            # 気温があれば取得、なければ "-"
             t_min = temps[i*2] if len(temps) > i*2 else "-"
             t_max = temps[i*2+1] if len(temps) > i*2+1 else "-"
+            
             cards.append(create_forecast_card(dates[i], weathers[i], t_min, t_max))
+            
     except Exception as e:
-        print(f"解析エラー: {e}")
-        return [ft.Text("データの解析に失敗しました")]
+        # それでもダメな場合は、ターミナルに詳しいエラーを出して教えてくれます
+        print(f"デバッグ情報: {e}")
+        return [ft.Text(f"解析失敗: {e}", color="red")]
+    
     return cards
 
 # --- 5. メイン画面：Fletで組み立てる ---
 def main(page: ft.Page):
+
     page.title = "気象庁 天気予報"
     page.theme_mode = ft.ThemeMode.LIGHT
     
@@ -80,4 +96,32 @@ def main(page: ft.Page):
         forecast_row
     )
 
+def main(page: ft.Page):
+    page.title = "気象庁 天気予報"
+    forecast_row = ft.Row(wrap=True, spacing=10)
+    
+    # 1. 地域リストを取得
+    area_data = get_area_data()
+    
+    # 2. 地域がクリックされた時の汎用的な処理
+    def on_area_click(e):
+        # クリックされたボタンの data プロパティからコードを受け取る
+        area_code = e.control.data 
+        data = get_forecast_data(area_code)
+        forecast_row.controls = parse_and_create_cards(data)
+        page.update()
+
+    # 3. 画面の組み立て（例：いくつかの地域のボタンを並べる）
+    # area_dataの中身をループしてボタンを作るのが理想です
+    area_buttons = ft.Column([
+        ft.ElevatedButton("東京", data="130000", on_click=on_area_click),
+        ft.ElevatedButton("大阪", data="270000", on_click=on_area_click),
+        ft.ElevatedButton("北海道", data="016000", on_click=on_area_click),
+    ])
+
+    page.add(
+        ft.Text("天気予報アプリ", size=30, weight="bold"),
+        area_buttons,
+        forecast_row
+    )
 ft.app(target=main)
